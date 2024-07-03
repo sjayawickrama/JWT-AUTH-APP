@@ -3,6 +3,6 @@ WORKDIR /app
 COPY package.json .
 RUN npm install --omit=dev
 COPY . .
-EXPOSE 81
+EXPOSE 80
  
 CMD ["npm", "start"]
