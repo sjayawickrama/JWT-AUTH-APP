@@ -4,7 +4,12 @@ import jwt from "jsonwebtoken";
 import { auth } from "../middleware/auth.js";
 import { sendEmail } from "../utils/sendEmail.js";
 import { resetPassword } from "../utils/emailTemplate.js";
-
+import crypto from "crypto";
+ 
+const hashPassword = (password) => {
+	return crypto.createHash("sha256").update(password).digest("hex");
+};
+ 
 const register = async (req, res) => {
 	try {
 		console.log("Request body:", req.body);
@@ -15,13 +20,12 @@ const register = async (req, res) => {
 				message: "Email already exists",
 				data: undefined,
 			});
-			console.log("Request body:", req.body);
 		}
-
-		const hashedPassword = await bcrypt.hash(req.body.password, 10);
+ 
+		const hashedPassword = hashPassword(req.body.password);
 		const customer = new Customer({ ...req.body, password: hashedPassword });
 		const savedCustomer = await customer.save();
-
+ 
 		return res.status(201).json({
 			status: true,
 			message: "Customer created successfully",
@@ -36,7 +40,7 @@ const register = async (req, res) => {
 		});
 	}
 };
-
+ 
 const login = async (req, res) => {
 	try {
 		const customer = await Customer.findOne({ email: req.body.email }).exec();
@@ -47,15 +51,9 @@ const login = async (req, res) => {
 				data: undefined,
 			});
 		}
-
-		const result = await new Promise((resolve, reject) => {
-			bcrypt.compare(req.body.password, customer.password, (err, result) => {
-				if (err) reject(err);
-				else resolve(result);
-			});
-		});
-
-		if (result) {
+ 
+		const passwordMatch = hashPassword(req.body.password) === customer.password;
+		if (passwordMatch) {
 			const token = jwt.sign(
 				{
 					email: customer.email,
@@ -66,13 +64,13 @@ const login = async (req, res) => {
 					expiresIn: "1h",
 				}
 			);
-
+ 
 			const tokenDoc = await Token.findOneAndUpdate(
 				{ _customerId: customer._id, tokenType: "login" },
 				{ token },
 				{ new: true, upsert: true }
 			).exec();
-
+ 
 			return res.status(200).json({
 				status: true,
 				message: "Auth successful",
@@ -97,14 +95,14 @@ const login = async (req, res) => {
 		});
 	}
 };
-
+ 
 const logout = async (req, res) => {
 	try {
 		await Token.findOneAndDelete({
 			_customerId: req.customerId,
 			tokenType: "login",
 		}).exec();
-
+ 
 		return res.status(200).json({
 			status: true,
 			message: "Logout successful",
@@ -119,7 +117,7 @@ const logout = async (req, res) => {
 		});
 	}
 };
-
+ 
 const authUser = async (req, res) => {
 	const customerId = req.customerId;
 	try {
@@ -145,12 +143,12 @@ const authUser = async (req, res) => {
 		});
 	}
 };
-
+ 
 const forgetPassword = async (req, res) => {
 	try {
 		const email = req.body.email;
 		const customer = await Customer.findOne({ email });
-
+ 
 		if (!customer) {
 			return res.status(401).json({
 				status: false,
@@ -158,7 +156,7 @@ const forgetPassword = async (req, res) => {
 				data: undefined,
 			});
 		}
-
+ 
 		const token = jwt.sign(
 			{
 				email: customer.email,
@@ -169,13 +167,13 @@ const forgetPassword = async (req, res) => {
 				expiresIn: "20m",
 			}
 		);
-
+ 
 		const tokenDoc = await Token.findOneAndUpdate(
 			{ _customerId: customer._id, tokenType: "resetPassword" },
 			{ token: token },
 			{ new: true, upsert: true }
 		);
-
+ 
 		if (tokenDoc) {
 			const emailTemplate = resetPassword(email, token);
 			sendEmail(emailTemplate);
@@ -200,20 +198,16 @@ const forgetPassword = async (req, res) => {
 		});
 	}
 };
-
+ 
 const resetPasswordcon = async (req, res) => {
 	const token = req.params.token;
 	const password = req.body.password;
-
+ 
 	try {
 		const decoded = jwt.verify(token, process.env.JWT_RESET_PW_KEY);
-		const customer = await Token.findOne({
-			_customerId: decoded.customerId,
-			token: token,
-			tokenType: "resetPassword",
-		});
+		const customer = await Customer.findById(decoded.customerId);
 		console.log("customer:", customer);
-
+ 
 		if (!customer) {
 			return res.status(404).json({
 				status: true,
@@ -221,33 +215,22 @@ const resetPasswordcon = async (req, res) => {
 				data: undefined,
 			});
 		}
-
-		bcrypt.hash(password, 10, async (err, hash) => {
-			if (err) {
-				console.log(err);
-				return res.status(500).json({
-					status: false,
-					message: "Error hashing password",
-					data: undefined,
-				});
-			}
-
-			customer.password = hash;
-			await customer.save();
-
-			await Token.findOneAndDelete({
-				_customerId: decoded.customerId,
-				tokenType: "resetPassword",
-			});
-
-			res.status(200).json({
-				status: true,
-				message: "Password reset successful",
-				data: undefined,
-			});
+ 
+		customer.password = hashPassword(password);
+		await customer.save();
+ 
+		await Token.findOneAndDelete({
+			_customerId: decoded.customerId,
+			tokenType: "resetPassword",
+		});
+ 
+		res.status(200).json({
+			status: true,
+			message: "Password reset successful",
+			data: undefined,
 		});
 	} catch (err) {
-		console.log(err);
+		console.error(err);
 		res.status(500).json({
 			status: false,
 			message: "Error resetting password",
@@ -255,5 +238,5 @@ const resetPasswordcon = async (req, res) => {
 		});
 	}
 };
-
+ 
 export { register, login, logout, authUser, forgetPassword, resetPasswordcon };
