@@ -1,6 +1,5 @@
 import Customer from "../model/CustomerModel.js";
 import Token from "../model/Token.js";
-import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { auth } from "../middleware/auth.js";
 import { sendEmail } from "../utils/sendEmail.js";
